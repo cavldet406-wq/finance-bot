@@ -332,16 +332,19 @@ async function handleWebhook(bot, req, res) {
 
 // ─── Запуск сервера ───────────────────────────────────────────────────────────
 
+/**
+ * Стартуем HTTP-сервер ВСЕГДА — Railway требует чтобы что-то слушало на $PORT,
+ * иначе health-check падает и показывает "Application failed to respond".
+ *
+ * Webhook-обработчик подключается только если задан TOCHKA_NOTIFY_CHAT_ID.
+ * Health-check и 404 работают в любом случае.
+ */
 export function startTochkaWebhookServer(bot) {
-  if (!config.tochkaEnabled) {
-    console.log("[Tochka] Webhook не запущен — задайте TOCHKA_NOTIFY_CHAT_ID в .env");
-    return null;
-  }
-
   const port = config.webhookPort;
+  const tochkaActive = config.tochkaEnabled;
 
   const server = http.createServer((req, res) => {
-    // Health-check для Railway
+    // Health-check для Railway / любого мониторинга
     if (req.method === "GET" && (req.url === "/" || req.url === "/health")) {
       res.writeHead(200, { "Content-Type": "text/plain" });
       res.end("OK");
@@ -349,6 +352,13 @@ export function startTochkaWebhookServer(bot) {
     }
 
     if (req.url === WEBHOOK_PATH) {
+      if (!tochkaActive) {
+        // Без TOCHKA_NOTIFY_CHAT_ID не сможем уведомить пользователя — отдаём 503
+        res.writeHead(503, { "Content-Type": "text/plain" });
+        res.end("Tochka integration disabled");
+        return;
+      }
+
       handleWebhook(bot, req, res).catch((err) => {
         console.error("[Tochka] Необработанная ошибка handler:", sanitizeError(err));
         if (!res.headersSent) {
@@ -363,13 +373,20 @@ export function startTochkaWebhookServer(bot) {
     res.end("Not Found");
   });
 
-  server.listen(port, () => {
-    console.log(`[Tochka] Webhook server слушает порт ${port}, путь ${WEBHOOK_PATH}`);
-  });
+  // 0.0.0.0 — обязательно для Railway, иначе порт не доступен снаружи
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`[HTTP] Сервер слушает 0.0.0.0:${port}`);
+    console.log(`[HTTP] Health-check: GET /health`);
 
-  // Прогреваем кэш публичного ключа при старте, чтобы первый webhook не тормозил
-  loadPublicKey().catch((err) => {
-    console.error("[Tochka] Ошибка предзагрузки публичного ключа:", sanitizeError(err));
+    if (tochkaActive) {
+      console.log(`[Tochka] Webhook активен: POST ${WEBHOOK_PATH}`);
+      // Прогреваем публичный ключ заранее
+      loadPublicKey().catch((err) => {
+        console.error("[Tochka] Ошибка предзагрузки публичного ключа:", sanitizeError(err));
+      });
+    } else {
+      console.log("[Tochka] Webhook не активен — задайте TOCHKA_NOTIFY_CHAT_ID для активации");
+    }
   });
 
   return server;
