@@ -7,7 +7,8 @@
     "start": "node src/index.js",
     "bot": "node src/index.js",
     "setup:sheets": "node src/setupSpreadsheet.js",
-    "check": "node --check src/index.js && node --check src/bot.js && node --check src/parser.js && node --check src/sheets.js && node --check src/setupSpreadsheet.js"
+    "tochka:register": "node tools/registerTochkaWebhook.js",
+    "check": "node --check src/index.js && node --check src/bot.js && node --check src/parser.js && node --check src/sheets.js && node --check src/setupSpreadsheet.js && node --check src/tochkaWebhook.js && node --check src/tochkaClient.js && node --check src/security.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

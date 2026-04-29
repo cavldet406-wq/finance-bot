@@ -6,6 +6,7 @@ import {
 } from "./aiParser.js";
 import { addMemoryNotes } from "./memory.js";
 import { appendTransactions, formatDate } from "./sheets.js";
+import { sanitizeError } from "./security.js";
 
 const pendingClarifications = new Map();
 
@@ -28,6 +29,22 @@ function buildSuccessMessage(transactions) {
 
 export function createBot() {
   const bot = new Telegraf(config.botToken);
+
+  bot.catch(async (error, ctx) => {
+    // Никогда не логируем error целиком — Telegraf включает bot.token в URL HTTP запросов
+    console.error("Telegraf error:", sanitizeError(error));
+
+    try {
+      await ctx.reply(
+        [
+          "Не получилось обработать сообщение.",
+          "Попробуйте еще раз через несколько секунд."
+        ].join("\n")
+      );
+    } catch {
+      // Ignore secondary reply failures.
+    }
+  });
 
   bot.start((ctx) =>
     ctx.reply(
@@ -95,10 +112,20 @@ export function createBot() {
 
       await ctx.reply(buildSuccessMessage(analysis.transactions));
     } catch (error) {
+      // Логируем санитизированную версию (без токенов в URL)
+      console.error("Message processing error:", sanitizeError(error));
+
+      // Пользователю показываем только заранее известные/безопасные сообщения,
+      // чтобы исключить любую возможность утечки токенов через error.message
+      const humanMessage =
+        error.message === "AI_TIMEOUT"
+          ? "ИИ-разбор занял слишком много времени. Попробуйте отправить сообщение короче или повторите еще раз."
+          : "Что-то пошло не так. Попробуйте еще раз.";
+
       await ctx.reply(
         [
           "Не смог обработать сообщение через ИИ.",
-          error.message || "Попробуйте еще раз.",
+          humanMessage,
           "",
           "Можно прислать одной строкой или списком из нескольких расходов."
         ].join("\n")

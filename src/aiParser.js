@@ -7,6 +7,7 @@ import {
 } from "./parser.js";
 
 let client;
+const AI_TIMEOUT_MS = 25000;
 
 function getClient() {
   if (!config.openaiApiKey) {
@@ -101,16 +102,21 @@ async function runAiParse({ text, now = new Date(), clarificationContext = "" })
   const openai = getClient();
   const memory = await readMemory();
   const catalog = await getCategoryCatalog();
-  const response = await openai.responses.create({
-    model: config.openaiModel,
-    input: buildPrompt({
-      text,
-      now,
-      clarificationContext,
-      memoryNotes: memory.notes,
-      catalog
-    })
-  });
+  const response = await Promise.race([
+    openai.responses.create({
+      model: config.openaiModel,
+      input: buildPrompt({
+        text,
+        now,
+        clarificationContext,
+        memoryNotes: memory.notes,
+        catalog
+      })
+    }),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("AI_TIMEOUT")), AI_TIMEOUT_MS)
+    )
+  ]);
 
   const parsed = JSON.parse(extractJson(response.output_text || ""));
 
